@@ -1,0 +1,403 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Groundnut Oil — Visualization + Sound (single file)</title>
+  <style>
+    html,body{height:100%;}
+    body { font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial; margin: 12px; background: #fafafa; color: #111; height:100%; }
+    h1 { font-size: 20px; margin:8px 0 12px 0; }
+    /* make the visualization take most of the screen, controls stay to the right */
+    .container { display: grid; grid-template-columns: 1fr 360px; gap: 12px; align-items: start; height: calc(100vh - 62px); }
+    .viz-wrap { background: white; padding: 8px; border-radius: 10px; box-shadow: 0 6px 18px rgba(0,0,0,0.06); height:100%; overflow:hidden; }
+    .controls { background: white; padding: 12px; border-radius: 10px; box-shadow: 0 6px 18px rgba(0,0,0,0.06); height:100%; overflow:auto }
+    label { display:block; margin-top:10px; font-size:13px; color:#333 }
+    input[type=range] { width:100%; }
+    button { margin-top:10px; padding:8px 12px; border-radius:8px; border:0; cursor:pointer; background:#0b76ef; color:white }
+    .muted { background:#777 }
+    .small { font-size:12px; color:#555 }
+    .hint { font-size:12px; color:#666; margin-top:8px }
+    .status { margin-top:8px; font-size:13px; }
+    .inline { display:flex; gap:8px; align-items:center }
+
+    /* Hover/active visuals for sonified points */
+    .sonify-point { transition: transform 160ms ease, filter 160ms ease, opacity 160ms ease; transform-origin: center center; }
+    .sonify-point.hovered { transform: translateY(-8px) scale(1.12); filter: drop-shadow(0 10px 18px rgba(11,118,239,0.22)); }
+    .sonify-point.scanning { filter: drop-shadow(0 0 12px rgba(11,118,239,0.95)); transform: scale(1.18); }
+  .selected-point {
+    transition: transform 180ms ease, filter 180ms ease, opacity 180ms ease;
+    transform: scale(1.4);
+    filter: drop-shadow(0 0 12px rgba(255,120,0,0.9));
+}
+</style>
+</head>
+<body>
+  <h1>Groundnut oil — keep your visualization, add sound</h1>
+  <div class="container">
+    <div class="viz-wrap">
+      <!-- PLACE YOUR ORIGINAL VISUALIZATION BELOW -->
+      <!--
+        IMPORTANT: The instructions said "do not alter how the visualization is done".
+        Put your existing visualization SVG/HTML inside the div with id="vizRoot".
+        For convenience the example below loads an external SVG file named
+        "Groundnut oil rpice.svg" (note: name matches the file you have). Place
+        that SVG in the same folder as this HTML when you open it locally.
+      -->
+      <div id="vizRoot">
+        <object id="vizObject" type="image/svg+xml" data="Groundnut oil rpice.svg" style="width:100%; height:100%; display:block;" aria-label="Groundnut oil viz">
+          Your browser does not support embedding SVG. Make sure the SVG file is in the same folder.
+        </object>
+      </div>
+      <!-- END original visualization -->
+    </div>
+
+    <aside class="controls">
+      <div class="inline"><strong>Sound & Selection Controls</strong></div>
+      <div class="hint">Select nodes by clicking them (toggle). Selected nodes will be included in the playback set. Use 'Play selected' to hear them sequentially or shuffled. Random-jump mode will pick nodes unpredictably.</div>
+
+      <label>Selection tools</label>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <button id="selectAll">Select all</button>
+        <button id="clearSel" class="muted">Clear</button>
+      </div>
+
+      <label>Playback</label>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <button id="playSelected">Play selected</button>
+        <button id="stopPlay" class="muted">Stop</button>
+      </div>
+
+      <label>Play order</label>
+      <select id="orderBy">
+        <option value="index">Index (left→right)</option>
+        <option value="value">Value (low→high)</option>
+      </select>
+
+      <label><input id="shuffleToggle" type="checkbox"> Shuffle (random order)</label>
+      <label><input id="jumpToggle" type="checkbox"> Random jump (pick nodes randomly during play)</label>
+      <label><input id="loopToggle" type="checkbox"> Loop selected set</label>
+
+      <label>Randomizer intensity (how often to jump)</label>
+      <input id="jumpIntensity" type="range" min="0" max="1" step="0.01" value="0.25">
+
+      <label>Instrument</label>
+      <select id="waveSelect">
+        <option value="sine">Sine (pure)</option>
+        <option value="triangle">Triangle (brighter)</option>
+        <option value="square">Square (harmonic)</option>
+        <option value="sawtooth">Sawtooth (rich)</option>
+      </select>
+
+      <label>Pitch mapping (price → Hz)</label>
+      <div class="small">Lowest pitch</div>
+      <input id="minFreq" type="range" min="50" max="600" value="160">
+      <div class="small">Highest pitch</div>
+      <input id="maxFreq" type="range" min="400" max="2000" value="1000">
+
+      <label>Playback speed (affects note duration)</label>
+      <input id="tempo" type="range" min="0.25" max="4" step="0.05" value="1">
+
+      <label>Volume</label>
+      <input id="volume" type="range" min="0" max="1" step="0.01" value="0.55">
+
+      <div class="inline" style="margin-top:6px;">
+        <label><input id="hoverToggle" type="checkbox" checked> Enable hover sound</label>
+      </div>
+
+      <div class="status" id="status">Status: waiting for SVG to load...</div>
+
+      <div style="margin-top:12px;border-top:1px dashed #eee;padding-top:8px;" class="small">
+        Tips:
+        <ul>
+          <li>Click nodes to select; play selected to sequence them.</li>
+          <li>Shuffle + Loop creates evolving textures; Random jump creates playful interruptions.</li>
+          <li>Selected nodes are visually highlighted; playing will pulse them and connect them with a temporary line.</li>
+        </ul>
+      </div>
+    </aside>
+  </div>
+
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <script>
+    // Enhanced Web Audio + SVG sonification with selection, shuffle, and random-jump
+    (async function(){
+      const status = id => document.getElementById('status').textContent = 'Status: ' + id;
+      status('waiting for SVG to embed and for user action');
+
+      // Audio context setup
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      const ctx = new AudioCtx();
+      const masterGain = ctx.createGain(); masterGain.gain.value = Number(document.getElementById('volume').value); masterGain.connect(ctx.destination);
+
+      // UI refs
+      const waveSel = document.getElementById('waveSelect');
+      const minFreqEl = document.getElementById('minFreq');
+      const maxFreqEl = document.getElementById('maxFreq');
+      const tempoEl = document.getElementById('tempo');
+      const playSelectedBtn = document.getElementById('playSelected');
+      const stopPlayBtn = document.getElementById('stopPlay');
+      const hoverToggle = document.getElementById('hoverToggle');
+      const selectAllBtn = document.getElementById('selectAll');
+      const clearSelBtn = document.getElementById('clearSel');
+      const orderBy = document.getElementById('orderBy');
+      const shuffleToggle = document.getElementById('shuffleToggle');
+      const jumpToggle = document.getElementById('jumpToggle');
+      const loopToggle = document.getElementById('loopToggle');
+      const jumpIntensity = document.getElementById('jumpIntensity');
+
+      // helpers
+      function resumeCtxIfNeeded(){ if (ctx.state === 'suspended') { return ctx.resume(); } return Promise.resolve(); }
+
+      function createNote(freq, durationSec=0.32, type='sine', gainScale=0.7){
+        const osc = ctx.createOscillator();
+        const g = ctx.createGain();
+        osc.type = type; osc.frequency.value = freq;
+        g.gain.setValueAtTime(0, ctx.currentTime);
+        g.gain.linearRampToValueAtTime(gainScale, ctx.currentTime + 0.01);
+        g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + durationSec);
+        osc.connect(g); g.connect(masterGain);
+        osc.start();
+        osc.stop(ctx.currentTime + durationSec + 0.05);
+        return {osc, g};
+      }
+
+      document.getElementById('volume').addEventListener('input', e=>{ masterGain.gain.value = Number(e.target.value); });
+
+      const obj = document.getElementById('vizObject');
+      let svgDoc, svgEl;
+
+      function setupWhenReady(){
+        try {
+          svgDoc = obj.contentDocument; // may be null until loaded
+          if (!svgDoc) throw new Error('SVG doc not ready');
+          svgEl = svgDoc.querySelector('svg');
+          if (!svgEl) throw new Error('No svg element found inside the object');
+        } catch(err){ status('SVG not ready — please wait or open the HTML directly if object fails to load.'); return; }
+
+        status('SVG loaded — scanning for points');
+
+        let points = Array.from(svgEl.querySelectorAll('circle,ellipse,rect')).filter(n=> n.getAttribute('r') || n.getAttribute('cx') || n.tagName.toLowerCase() === 'rect');
+        let pointsWithValue = points.filter(p=> p.hasAttribute('data-value') || p.hasAttribute('value') || p.classList.contains('point'));
+        if (pointsWithValue.length) points = pointsWithValue;
+
+        if (points.length === 0){
+          const path = svgEl.querySelector('path');
+          if (!path) { status('No points or path found in SVG. Sonification limited.'); return; }
+          const pathLen = path.getTotalLength();
+          const sampleN = Math.min(200, Math.max(30, Math.floor(pathLen/10)));
+          points = [];
+          for (let i=0;i<sampleN;i++){
+            const p = path.getPointAtLength(i*(pathLen/(sampleN-1)));
+            const el = document.createElementNS('http://www.w3.org/2000/svg','circle');
+            el.setAttribute('cx', p.x); el.setAttribute('cy', p.y); el.setAttribute('r', 3);
+            el.dataset._virtual = 'true';
+            svgEl.appendChild(el);
+            points.push(el);
+          }
+          status('Created virtual points by sampling path for sonification.');
+        } else {
+          status(`Found ${points.length} point elements for sonification.`);
+        }
+
+        const bbox = svgEl.getBBox();
+        const data = points.map((pt, i)=>{
+          let val = null;
+          if (pt.hasAttribute('data-value')) val = Number(pt.getAttribute('data-value'));
+          else if (pt.hasAttribute('value')) val = Number(pt.getAttribute('value'));
+          else if (pt.hasAttribute('y')) val = Number(pt.getAttribute('y'));
+          else if (pt.hasAttribute('cy')) val = Number(pt.getAttribute('cy'));
+          if (!val || Number.isNaN(val)){
+            try { const c = pt.getBoundingClientRect(); val = c ? c.y : (i+1); } catch(e){ val = (i+1); }
+          }
+          const y = (pt.hasAttribute('cy')? Number(pt.getAttribute('cy')) : (pt.hasAttribute('y') ? Number(pt.getAttribute('y')) : null));
+          const norm = (y !== null && !Number.isNaN(y)) ? (1 - ((y - bbox.y) / bbox.height)) : null;
+          return {el: pt, raw: val, y, norm, index: i, selected:false};
+        });
+
+        const rawVals = data.map(d => d.raw).filter(v=> !Number.isNaN(Number(v)));
+        const useNorm = rawVals.length === 0 || (Math.max(...rawVals) - Math.min(...rawVals) < 1e-6);
+        const valueAccessor = d => {
+          if (!useNorm && !Number.isNaN(Number(d.raw))) return Number(d.raw);
+          if (d.norm !== null) return d.norm; return d.index / Math.max(1, data.length-1);
+        };
+
+        const valsForDomain = data.map(valueAccessor);
+        const minVal = Math.min(...valsForDomain);
+        const maxVal = Math.max(...valsForDomain);
+        function mapToFreq(v){
+          const minF = Number(minFreqEl.value);
+          const maxF = Number(maxFreqEl.value);
+          const t = (v - minVal) / (maxVal - minVal || 1);
+          return minF * Math.pow(maxF/minF, t);
+        }
+
+        // Visual selection and interaction
+        function markSelectedVisual(d){
+          try {
+            // strong visual marker for selection
+            if (d.selected){
+              d.el.classList.add('selected-point');
+              d.el.style.opacity = 1;
+              d.el.setAttribute('stroke','rgb(255,120,0)');
+              d.el.setAttribute('stroke-width',3);
+              d.el.setAttribute('fill','rgba(255,120,0,0.35)');
+            } else {
+              d.el.classList.remove('selected-point');
+              d.el.removeAttribute('stroke');
+              d.el.removeAttribute('stroke-width');
+              d.el.removeAttribute('fill');
+              d.el.style.opacity = d.el.dataset && d.el.dataset._virtual ? 0.001 : 1;
+            }
+          } catch(e){}
+        }
+            else { d.el.classList.remove('scanning'); d.el.style.opacity = d.el.dataset && d.el.dataset._virtual ? 0.001 : 1; d.el.removeAttribute('stroke'); d.el.removeAttribute('stroke-width'); }
+          } catch(e){}
+        }
+
+        data.forEach(d => {
+          const el = d.el;
+          if (el.dataset && el.dataset._virtual) { el.setAttribute('r', 3); el.style.opacity = 0.001; }
+          el.style.cursor = 'pointer';
+          el.classList.add('sonify-point');
+
+          const onEnter = async (ev) => {
+            if (!hoverToggle.checked) return;
+            await resumeCtxIfNeeded();
+            const v = valueAccessor(d);
+            const freq = mapToFreq(v);
+            const wave = waveSel.value;
+            // tie gain to value (higher value -> louder)
+            const gainScale = 0.2 + 0.8 * ((v - minVal) / (maxVal - minVal || 1));
+            createNote(freq, 0.45, wave, gainScale);
+            try { el.classList.add('hovered'); el.style.opacity = 1; }
+            catch(e){}
+          };
+          const onLeave = (ev) => { try { el.classList.remove('hovered'); if (el.dataset && el.dataset._virtual) el.style.opacity = 0.001; } catch(e){} };
+
+          const onClick = (ev) => {
+            d.selected = !d.selected; markSelectedVisual(d);
+          };
+
+          el.addEventListener('mouseenter', onEnter);
+          el.addEventListener('mouseleave', onLeave);
+          el.addEventListener('touchstart', async (ev)=>{ ev.preventDefault(); await onEnter(ev); }, {passive:false});
+          el.addEventListener('touchend', onLeave);
+          el.addEventListener('click', onClick);
+        });
+
+        // Selection buttons
+        selectAllBtn.addEventListener('click', ()=>{ data.forEach(d=>{ d.selected = true; markSelectedVisual(d); }); status('All selected'); });
+        clearSelBtn.addEventListener('click', ()=>{ data.forEach(d=>{ d.selected = false; markSelectedVisual(d); }); status('Cleared selection'); });
+
+        // Playback of a sequence (selected set)
+        let playing = false;
+        let stopRequested = false;
+        let connectorLine = null;
+
+        function ensureConnector(){
+          if (!connectorLine){
+            connectorLine = document.createElementNS('http://www.w3.org/2000/svg','path');
+            connectorLine.setAttribute('fill','none');
+            connectorLine.setAttribute('stroke','rgba(11,118,239,0.9)');
+            connectorLine.setAttribute('stroke-width',2.2);
+            connectorLine.setAttribute('stroke-linecap','round');
+            svgEl.appendChild(connectorLine);
+          }
+        }
+
+        function clearConnector(){ if (connectorLine && connectorLine.parentNode) connectorLine.parentNode.removeChild(connectorLine); connectorLine = null; }
+
+        function orderData(arr){
+          if (orderBy.value === 'value') return arr.slice().sort((a,b)=> valueAccessor(a) - valueAccessor(b));
+          return arr.slice().sort((a,b)=> a.index - b.index);
+        }
+
+        function shuffleArray(a){ for (let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a; }
+
+        async function playSequence(list){
+          if (!list.length) { status('No nodes selected'); return; }
+          await resumeCtxIfNeeded();
+          playing = true; stopRequested = false; status('Playing selection');
+
+          // build play list according to shuffle/jump settings
+          let playList = orderData(list);
+          if (shuffleToggle.checked) playList = shuffleArray(playList.slice());
+
+          ensureConnector();
+
+          const baseDur = 0.22;
+          const tempo = Number(tempoEl.value);
+
+          while (playing && !stopRequested){
+            for (let i=0;i<playList.length;i++){
+              if (stopRequested) break;
+              // jump logic: with probability jumpIntensity pick a random node instead
+              let node = playList[i];
+              if (jumpToggle.checked && Math.random() < Number(jumpIntensity.value)){
+                node = playList[Math.floor(Math.random()*playList.length)];
+              }
+
+              // compute freq and gain
+              const v = valueAccessor(node);
+              const freq = mapToFreq(v);
+              const wave = waveSel.value;
+              const gainScale = 0.25 + 0.75 * ((v - minVal) / (maxVal - minVal || 1));
+              const dur = Math.max(0.06, baseDur / tempo) * (1 + (1 - ((v-minVal)/(maxVal-minVal||1))) * 0.6);
+
+              // visual pulse and connector update
+              try {
+                node.el.classList.add('scanning');
+                node.el.style.opacity = 1;
+                // draw connector path linking previously played nodes in this sequence order
+                const pts = playList.slice(0, playList.indexOf(node)+1).map(n => {
+                  const c = n.el.getBBox(); return [c.x + c.width/2, c.y + c.height/2];
+                });
+                if (pts.length>1){
+                  const d = pts.map((p,i)=> (i===0? 'M'+p[0]+','+p[1] : 'L'+p[0]+','+p[1])).join(' ');
+                  connectorLine.setAttribute('d', d);
+                  connectorLine.style.opacity = 1;
+                }
+              } catch(e){}
+
+              createNote(freq, dur, wave, gainScale);
+              await new Promise(r=> setTimeout(r, Math.max(40, dur*1000)));
+
+              try { node.el.classList.remove('scanning'); } catch(e){}
+            }
+            if (!loopToggle.checked) break;
+            if (shuffleToggle.checked) playList = shuffleArray(playList.slice());
+          }
+
+          playing = false; stopRequested = false; clearConnector(); status('Playback finished');
+        }
+
+        playSelectedBtn.addEventListener('click', ()=>{
+          const sel = data.filter(d=>d.selected);
+          playSequence(sel);
+        });
+
+        stopPlayBtn.addEventListener('click', ()=>{ stopRequested = true; playing = false; status('Stop requested'); clearConnector(); });
+
+        status('Ready — click nodes to select and use Play selected.');
+      }
+
+      obj.addEventListener('load', setupWhenReady);
+      obj.addEventListener('error', async ()=>{
+        status('Embedding failed — attempting to inline SVG via fetch.');
+        try{
+          const resp = await fetch('Groundnut oil rpice.svg');
+          if (!resp.ok) throw new Error('fetch failed');
+          const text = await resp.text();
+          const div = document.createElement('div'); div.innerHTML = text;
+          const svg = div.querySelector('svg');
+          if (!svg) throw new Error('no svg content');
+          const root = document.getElementById('vizRoot'); root.innerHTML = ''; root.appendChild(svg);
+          window.setTimeout(()=>{ obj.contentDocument = { querySelector: (q)=> svg.querySelector(q) }; setupWhenReady(); }, 50);
+        }catch(e){ status('Inlining SVG failed — open this file alongside the SVG in the same folder for full functionality.'); }
+      });
+
+    })();
+  </script>
+</body>
+</html>
